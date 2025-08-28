@@ -20,8 +20,7 @@ function parseWords(txt: string): string[] {
 
 /** Load /public/cwords.txt (works on GitHub Pages via BASE_URL) */
 async function loadTxt(): Promise<string[]> {
-  const url = new URL("cwords.txt", import.meta.env.BASE_URL).toString();
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch("./cwords.txt", { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to load cwords.txt (${res.status})`);
   const txt = await res.text();
   const words = parseWords(txt);
