@@ -14,8 +14,7 @@ function parseWords(txt: string): string[] {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
-    .slice(0, 100)
-    .map((w) => w.toLowerCase());
+    .slice(0, 100);   // keep original casing
 }
 
 /** Load /public/cwords.txt with a simple relative path */
