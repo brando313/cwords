@@ -64,7 +64,6 @@ main {
   font-size: clamp(96px, 12vw, 240px);
   font-weight: 800;
   font-family: "Comic Sans MS", "Century Gothic", "Trebuchet MS", Arial, Verdana, sans-serif;
-  text-transform: lowercase;
   letter-spacing: -0.02em;
 }
 
