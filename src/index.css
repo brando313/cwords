@@ -62,6 +62,7 @@ main {
 .word-card span {
   font-size: clamp(96px, 12vw, 240px); /* very big words */
   font-weight: 800;
+  font-family: "Times New Roman", Times, serif;  /* 👈 force Times New Roman */
   text-transform: lowercase;
   letter-spacing: -0.02em;
 }
