@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 
 // --- The 25 D/E-level words ---
 const WORDS = [
-  "knight","write","catch","phone","gnaw",
-  "dream","bread","train","coach","green",
-  "pie","thief","coin","toy",
-  "start","storm","bird","fern","turn",
-  "running","played","fearless","bigger","paper","music",
+  "see","went","I","an","up",
+  "here","by","the","am","look",
+  "in","put","love","my","some",
+  "big","a","has","on","is",
+  "get","yes","for","play","little",
+  "with","of","what","to",
 ] as const;
 
 type Status = "correct" | "incorrect" | "skipped" | null;
@@ -103,7 +104,7 @@ export default function App() {
     <div>
       <header>
         <div className="header-inner">
-          <div className="header-title">George's Words</div>
+          <div className="header-title">Charlie's Words</div>
           <div className="header-actions">
             <button className="btn btn-small" onClick={() => setView(view === "trainer" ? "summary" : "trainer")}>
               {view === "trainer" ? "Summary" : "Back to Practice"}
