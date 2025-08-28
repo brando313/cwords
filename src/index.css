@@ -59,12 +59,18 @@ main {
   margin-bottom: 2rem;
 }
 
+/* Big word on the practice card */
 .word-card span {
-  font-size: clamp(96px, 12vw, 240px); /* very big words */
+  font-size: clamp(96px, 12vw, 240px);
   font-weight: 800;
-  font-family: "Times New Roman", Times, serif;  /* 👈 force Times New Roman */
+  font-family: "Comic Sans MS", "Century Gothic", "Trebuchet MS", Arial, Verdana, sans-serif;
   text-transform: lowercase;
   letter-spacing: -0.02em;
+}
+
+/* Words listed on the Summary screen */
+.list button {
+  font-family: "Comic Sans MS", "Century Gothic", "Trebuchet MS", Arial, Verdana, sans-serif;
 }
 
 .btn-row {
