@@ -18,7 +18,7 @@ function parseWords(txt: string): string[] {
     .map((w) => w.toLowerCase());
 }
 
-/** Load /public/cwords.txt (works on GitHub Pages via BASE_URL) */
+/** Load /public/cwords.txt with a simple relative path */
 async function loadTxt(): Promise<string[]> {
   const res = await fetch("./cwords.txt", { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to load cwords.txt (${res.status})`);
@@ -53,7 +53,13 @@ export default function App() {
           try {
             const parsed = JSON.parse(raw);
             setIndex(Math.min(Math.max(Number(parsed.index) || 0, 0), w.length - 1));
-            setStatuses(parsed.statuses ?? {});
+            // Ensure we have an entry for each word
+            const restored: Record<string, Status> = {};
+            w.forEach((word) => {
+              const s = parsed.statuses?.[word] ?? null;
+              restored[word] = s === "correct" || s === "incorrect" || s === "skipped" ? s : null;
+            });
+            setStatuses(restored);
           } catch {
             const init: Record<string, Status> = {};
             w.forEach((word) => (init[word] = null));
@@ -80,7 +86,7 @@ export default function App() {
     } catch {}
   }, [storeKey, statuses, index, words]);
 
-  // Derived
+  // Derived groups
   const groups = useMemo(() => {
     const correct: string[] = [], incorrect: string[] = [], notAnswered: string[] = [];
     (words ?? []).forEach((w) => {
@@ -97,36 +103,58 @@ export default function App() {
   const progressPercent = total ? Math.round((answeredCount / total) * 100) : 0;
   const allDone = total > 0 && groups.notAnswered.length === 0;
 
-  // Nav helpers
-  function nextIndex(from: number) {
-    if (!words) return from;
-    if (from < words.length - 1) return from + 1;
-    const remaining = words.findIndex((w) => statuses[w] === null || statuses[w] === "skipped");
-    return remaining === -1 ? from : remaining;
+  /** Find the next index whose status is NOT "correct".
+   *  Starts from current+1, wraps around once. Returns -1 if none found.
+   */
+  function findNextNonCorrect(from: number): number {
+    if (!words || words.length === 0) return -1;
+    const n = words.length;
+    for (let step = 1; step <= n; step++) {
+      const i = (from + step) % n;
+      const w = words[i];
+      if (statuses[w] !== "correct") return i;
+    }
+    return -1;
   }
-  function prev() { setIndex((i) => Math.max(i - 1, 0)); }
+
+  function prev() {
+    setIndex((i) => (i > 0 ? i - 1 : 0));
+  }
+
   function next() {
-    const ni = nextIndex(index);
-    if (ni === index) setView("summary"); else setIndex(ni);
+    const ni = findNextNonCorrect(index);
+    if (ni === -1) setView("summary");
+    else setIndex(ni);
   }
+
   function handleMark(mark: Exclude<Status, null>) {
     if (!words) return;
     const w = words[index];
     setStatuses((prev) => ({ ...prev, [w]: mark }));
-    const ni = nextIndex(index);
-    if (ni === index) setView("summary"); else setIndex(ni);
+    // After marking, always go to the next non-correct word (skip any already-correct)
+    const ni = findNextNonCorrect(index);
+    if (ni === -1) setView("summary");
+    else setIndex(ni);
   }
+
   function resetAll() {
     if (!words) return;
     const cleared: Record<string, Status> = {};
     words.forEach((w) => (cleared[w] = null));
-    setStatuses(cleared); setIndex(0); setView("trainer");
+    setStatuses(cleared);
+    setIndex(0);
+    setView("trainer");
   }
+
   function jumpToWord(w: string) {
     if (!words) return;
     const i = words.indexOf(w);
-    if (i >= 0) { setIndex(i); setView("trainer"); }
+    if (i >= 0) {
+      setIndex(i);
+      setView("trainer");
+    }
   }
+
   async function reloadWords() {
     setError(null);
     try {
@@ -138,7 +166,12 @@ export default function App() {
       if (raw) {
         const parsed = JSON.parse(raw);
         setIndex(Math.min(Math.max(Number(parsed.index) || 0, 0), w.length - 1));
-        setStatuses(parsed.statuses ?? {});
+        const restored: Record<string, Status> = {};
+        w.forEach((word) => {
+          const s = parsed.statuses?.[word] ?? null;
+          restored[word] = s === "correct" || s === "incorrect" || s === "skipped" ? s : null;
+        });
+        setStatuses(restored);
       } else {
         const init: Record<string, Status> = {};
         w.forEach((word) => (init[word] = null));
