@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-/** ---- Types & helpers ---- */
+/** Types & helpers */
 type Status = "correct" | "incorrect" | "skipped" | null;
 
 function simpleHash(s: string) {
@@ -14,10 +14,9 @@ function parseWords(txt: string): string[] {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 0)
-    .slice(0, 100);   // keep original casing
+    .slice(0, 100); // preserve original case
 }
 
-/** Load /public/cwords.txt with a simple relative path */
 async function loadTxt(): Promise<string[]> {
   const res = await fetch("./cwords.txt", { cache: "no-store" });
   if (!res.ok) throw new Error(`Failed to load cwords.txt (${res.status})`);
@@ -36,14 +35,13 @@ export default function App() {
   const [view, setView] = useState<"trainer" | "summary">("trainer");
   const [storeKey, setStoreKey] = useState<string>("");
 
-  // Load words on mount
+  // Load words on start
   useEffect(() => {
     (async () => {
       try {
         const w = await loadTxt();
         setWords(w);
-
-        const key = "vocab_progress_" + simpleHash(w.join("\n"));
+        const key = "vocab_progress_" + simpleHash("cwords:" + w.join("\n"));
         setStoreKey(key);
 
         // restore progress if present
@@ -52,7 +50,6 @@ export default function App() {
           try {
             const parsed = JSON.parse(raw);
             setIndex(Math.min(Math.max(Number(parsed.index) || 0, 0), w.length - 1));
-            // Ensure we have an entry for each word
             const restored: Record<string, Status> = {};
             w.forEach((word) => {
               const s = parsed.statuses?.[word] ?? null;
@@ -85,7 +82,7 @@ export default function App() {
     } catch {}
   }, [storeKey, statuses, index, words]);
 
-  // Derived groups
+  // Grouping for summary
   const groups = useMemo(() => {
     const correct: string[] = [], incorrect: string[] = [], notAnswered: string[] = [];
     (words ?? []).forEach((w) => {
@@ -102,64 +99,48 @@ export default function App() {
   const progressPercent = total ? Math.round((answeredCount / total) * 100) : 0;
   const allDone = total > 0 && groups.notAnswered.length === 0;
 
-  /** Find the next index whose status is NOT "correct".
-   *  Starts from current+1, wraps around once. Returns -1 if none found.
-   */
+  // Next index that is NOT "correct" (wrap once)
   function findNextNonCorrect(from: number): number {
     if (!words || words.length === 0) return -1;
     const n = words.length;
     for (let step = 1; step <= n; step++) {
       const i = (from + step) % n;
-      const w = words[i];
-      if (statuses[w] !== "correct") return i;
+      if (statuses[words[i]] !== "correct") return i;
     }
     return -1;
   }
 
-  function prev() {
-    setIndex((i) => (i > 0 ? i - 1 : 0));
-  }
-
+  function prev() { setIndex((i) => Math.max(i - 1, 0)); }
   function next() {
     const ni = findNextNonCorrect(index);
     if (ni === -1) setView("summary");
     else setIndex(ni);
   }
-
   function handleMark(mark: Exclude<Status, null>) {
     if (!words) return;
     const w = words[index];
     setStatuses((prev) => ({ ...prev, [w]: mark }));
-    // After marking, always go to the next non-correct word (skip any already-correct)
     const ni = findNextNonCorrect(index);
     if (ni === -1) setView("summary");
     else setIndex(ni);
   }
-
   function resetAll() {
     if (!words) return;
     const cleared: Record<string, Status> = {};
     words.forEach((w) => (cleared[w] = null));
-    setStatuses(cleared);
-    setIndex(0);
-    setView("trainer");
+    setStatuses(cleared); setIndex(0); setView("trainer");
   }
-
   function jumpToWord(w: string) {
     if (!words) return;
     const i = words.indexOf(w);
-    if (i >= 0) {
-      setIndex(i);
-      setView("trainer");
-    }
+    if (i >= 0) { setIndex(i); setView("trainer"); }
   }
-
   async function reloadWords() {
     setError(null);
     try {
       const w = await loadTxt();
       setWords(w);
-      const key = "vocab_progress_" + simpleHash(w.join("\n"));
+      const key = "vocab_progress_" + simpleHash("cwords:" + w.join("\n"));
       setStoreKey(key);
       const raw = localStorage.getItem(key);
       if (raw) {
@@ -182,7 +163,7 @@ export default function App() {
     }
   }
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (trainer view only)
   useEffect(() => {
     if (view !== "trainer") return;
     const handler = (e: KeyboardEvent) => {
@@ -202,12 +183,15 @@ export default function App() {
       <header>
         <div className="header-inner">
           <div className="header-title">Charlie&apos;s Words</div>
-          <div className="header-actions" style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-small" onClick={() => setView(view === "trainer" ? "summary" : "trainer")}>
+          <div className="header-actions">
+            <button
+              className="btn btn-small"
+              onClick={() => setView(view === "trainer" ? "summary" : "trainer")}
+            >
               {view === "trainer" ? "Summary" : "Back to Practice"}
             </button>
-            <button className="btn btn-small" onClick={resetAll} title="Clear progress">Reset</button>
-            <button className="btn btn-small" onClick={reloadWords} title="Reload cwords.txt">Reload words</button>
+            <button className="btn btn-small" onClick={resetAll}>Reset</button>
+            <button className="btn btn-small" onClick={reloadWords}>Reload words</button>
           </div>
         </div>
         <div className="progress-wrap">
@@ -215,12 +199,9 @@ export default function App() {
         </div>
       </header>
 
-      {!words && !error && (
-        <main><div className="meta">Loading cwords.txt…</div></main>
-      )}
-      {error && (
-        <main><div className="meta" style={{ color: "#b91c1c" }}>Error: {error}</div></main>
-      )}
+      {error && <main><div className="meta" style={{ color:"#b91c1c" }}>Error: {error}</div></main>}
+      {!error && !words && <main><div className="meta">Loading cwords.txt…</div></main>}
+
       {words && !error && (
         view === "trainer" ? (
           <TrainerView
@@ -247,15 +228,14 @@ export default function App() {
 
       <footer>
         <p>
-          Tip: Edit <b>public/cwords.txt</b> (one word per line). Shortcuts — <b>C</b> ✓,
-          <b> X</b> ✗, <b>S</b> skip, <b>Space/→</b> next.
+          Tip: Edit <b>public/cwords.txt</b> (one word per line). Shortcuts — <b>C</b> ✓, <b>X</b> ✗, <b>S</b> skip, <b>Space/→</b> next.
         </p>
       </footer>
     </div>
   );
 }
 
-/** ----- Views ----- */
+/** Views */
 function TrainerView({
   word, index, total, status, onMark, onPrev, onNext, allDone,
 }: {
@@ -272,9 +252,8 @@ function TrainerView({
               "badge " +
               (status === "correct" ? "badge-green" : status === "incorrect" ? "badge-red" : "badge-amber")
             }
-            aria-live="polite"
           >
-            {status === "correct" ? "Marked ✓ correct" : status === "incorrect" ? "Marked ✗ incorrect" : "Marked skip"}
+            {status === "correct" ? "✓ correct" : status === "incorrect" ? "✗ incorrect" : "skipped"}
           </span>
         )}
       </div>
@@ -283,22 +262,18 @@ function TrainerView({
         <span>{word}</span>
       </div>
 
-      <div style={{ height: 12 }} />
-
       <div className="btn-row">
-        <button onClick={() => onMark("correct")} className="btn">✓ Correct</button>
-        <button onClick={() => onMark("incorrect")} className="btn">✗ Incorrect</button>
-        <button onClick={() => onMark("skipped")} className="btn">Skip</button>
+        <button onClick={() => onMark("correct")} className="btn btn-green">✓ Correct</button>
+        <button onClick={() => onMark("incorrect")} className="btn btn-red">✗ Incorrect</button>
+        <button onClick={() => onMark("skipped")} className="btn btn-amber">Skip</button>
       </div>
-
-      <div style={{ height: 12 }} />
 
       <div className="row">
         <button onClick={onPrev} className="btn btn-small">← Prev</button>
         {!allDone ? (
           <button onClick={onNext} className="btn btn-small">Next →</button>
         ) : (
-          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="btn btn-small">
+          <button className="btn btn-small" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
             All words reviewed — open Summary ▲
           </button>
         )}
@@ -340,11 +315,7 @@ function SummaryColumn({
       <ul className="list">
         {words.length === 0 && <li><div style={{ padding: 16, color: "#64748b", fontSize: 14 }}>None</div></li>}
         {words.map((w) => (
-          <li key={w}>
-            <button onClick={() => onSelect(w)} title="Open word to practice">
-              {w}
-            </button>
-          </li>
+          <li key={w}><button onClick={() => onSelect(w)}>{w}</button></li>
         ))}
       </ul>
     </section>
