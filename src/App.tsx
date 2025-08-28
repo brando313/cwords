@@ -1,63 +1,155 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-// --- The 25 D/E-level words ---
-const WORDS = [
-  "see","went","I","an","up",
-  "here","by","the","am","look",
-  "in","put","love","my","some",
-  "big","a","has","on","is",
-  "get","yes","for","play","little",
-  "with","of","what","to",
-] as const;
-
+/** ---- Types & helpers ---- */
 type Status = "correct" | "incorrect" | "skipped" | null;
-type StoreShape = { statuses: Record<string, Status>; index: number; };
-const STORAGE_KEY = "vocab_trainer_progress_v1";
 
-function loadStore(): StoreShape | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const statuses: Record<string, Status> = {};
-    WORDS.forEach((w) => {
-      const s = parsed.statuses?.[w] ?? null;
-      statuses[w] = s === "correct" || s === "incorrect" || s === "skipped" ? s : null;
-    });
-    const index = Math.min(Math.max(Number(parsed.index) || 0, 0), WORDS.length - 1);
-    return { statuses, index };
-  } catch { return null; }
+function simpleHash(s: string) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
-function saveStore(data: StoreShape) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {}
+function parseWords(txt: string): string[] {
+  return txt
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .slice(0, 100)
+    .map((w) => w.toLowerCase());
+}
+
+/** Load /public/cwords.txt (works on GitHub Pages via BASE_URL) */
+async function loadTxt(): Promise<string[]> {
+  const url = new URL("cwords.txt", import.meta.env.BASE_URL).toString();
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`Failed to load cwords.txt (${res.status})`);
+  const txt = await res.text();
+  const words = parseWords(txt);
+  if (words.length === 0) throw new Error("cwords.txt has no words");
+  return words;
 }
 
 export default function App() {
-  const [statuses, setStatuses] = useState<Record<string, Status>>(() => {
-    const loaded = loadStore();
-    if (loaded) return loaded.statuses;
-    const base: Record<string, Status> = {}; WORDS.forEach((w) => base[w] = null); return base;
-  });
-  const [index, setIndex] = useState<number>(() => loadStore()?.index ?? 0);
-  const [view, setView] = useState<"trainer" | "summary">("trainer");
+  const [words, setWords] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
+  const [statuses, setStatuses] = useState<Record<string, Status>>({});
+  const [index, setIndex] = useState(0);
+  const [view, setView] = useState<"trainer" | "summary">("trainer");
+  const [storeKey, setStoreKey] = useState<string>("");
+
+  // Load words on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const w = await loadTxt();
+        setWords(w);
+
+        const key = "vocab_progress_" + simpleHash(w.join("\n"));
+        setStoreKey(key);
+
+        // restore progress if present
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            setIndex(Math.min(Math.max(Number(parsed.index) || 0, 0), w.length - 1));
+            setStatuses(parsed.statuses ?? {});
+          } catch {
+            const init: Record<string, Status> = {};
+            w.forEach((word) => (init[word] = null));
+            setStatuses(init);
+            setIndex(0);
+          }
+        } else {
+          const init: Record<string, Status> = {};
+          w.forEach((word) => (init[word] = null));
+          setStatuses(init);
+          setIndex(0);
+        }
+      } catch (e: any) {
+        setError(e?.message || "Could not load cwords.txt");
+      }
+    })();
+  }, []);
+
+  // Persist progress
+  useEffect(() => {
+    if (!storeKey || !words) return;
+    try {
+      localStorage.setItem(storeKey, JSON.stringify({ statuses, index }));
+    } catch {}
+  }, [storeKey, statuses, index, words]);
+
+  // Derived
   const groups = useMemo(() => {
     const correct: string[] = [], incorrect: string[] = [], notAnswered: string[] = [];
-    WORDS.forEach((w) => {
+    (words ?? []).forEach((w) => {
       const s = statuses[w];
       if (s === "correct") correct.push(w);
       else if (s === "incorrect") incorrect.push(w);
-      else notAnswered.push(w); // includes null + skipped
+      else notAnswered.push(w);
     });
     return { correct, incorrect, notAnswered };
-  }, [statuses]);
+  }, [words, statuses]);
 
   const answeredCount = groups.correct.length + groups.incorrect.length;
-  const progressPercent = Math.round((answeredCount / WORDS.length) * 100);
-  const allDone = groups.notAnswered.length === 0;
+  const total = words?.length ?? 0;
+  const progressPercent = total ? Math.round((answeredCount / total) * 100) : 0;
+  const allDone = total > 0 && groups.notAnswered.length === 0;
 
-  useEffect(() => { saveStore({ statuses, index }); }, [statuses, index]);
+  // Nav helpers
+  function nextIndex(from: number) {
+    if (!words) return from;
+    if (from < words.length - 1) return from + 1;
+    const remaining = words.findIndex((w) => statuses[w] === null || statuses[w] === "skipped");
+    return remaining === -1 ? from : remaining;
+  }
+  function prev() { setIndex((i) => Math.max(i - 1, 0)); }
+  function next() {
+    const ni = nextIndex(index);
+    if (ni === index) setView("summary"); else setIndex(ni);
+  }
+  function handleMark(mark: Exclude<Status, null>) {
+    if (!words) return;
+    const w = words[index];
+    setStatuses((prev) => ({ ...prev, [w]: mark }));
+    const ni = nextIndex(index);
+    if (ni === index) setView("summary"); else setIndex(ni);
+  }
+  function resetAll() {
+    if (!words) return;
+    const cleared: Record<string, Status> = {};
+    words.forEach((w) => (cleared[w] = null));
+    setStatuses(cleared); setIndex(0); setView("trainer");
+  }
+  function jumpToWord(w: string) {
+    if (!words) return;
+    const i = words.indexOf(w);
+    if (i >= 0) { setIndex(i); setView("trainer"); }
+  }
+  async function reloadWords() {
+    setError(null);
+    try {
+      const w = await loadTxt();
+      setWords(w);
+      const key = "vocab_progress_" + simpleHash(w.join("\n"));
+      setStoreKey(key);
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setIndex(Math.min(Math.max(Number(parsed.index) || 0, 0), w.length - 1));
+        setStatuses(parsed.statuses ?? {});
+      } else {
+        const init: Record<string, Status> = {};
+        w.forEach((word) => (init[word] = null));
+        setStatuses(init);
+        setIndex(0);
+      }
+    } catch (e: any) {
+      setError(e?.message || "Could not reload cwords.txt");
+    }
+  }
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -72,44 +164,19 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [view, index, statuses]);
-
-  function nextIndex(from = index) {
-    if (from < WORDS.length - 1) return from + 1;
-    const remaining = WORDS.findIndex((w) => statuses[w] === null || statuses[w] === "skipped");
-    return remaining === -1 ? from : remaining;
-  }
-  function prev() { setIndex((i) => (i > 0 ? i - 1 : 0)); }
-  function next() {
-    const ni = nextIndex(index);
-    if (ni === index) setView("summary"); else setIndex(ni);
-  }
-  function handleMark(mark: Exclude<Status, null>) {
-    const word = WORDS[index];
-    setStatuses((prev) => ({ ...prev, [word]: mark }));
-    const ni = nextIndex(index);
-    if (ni === index) setView("summary"); else setIndex(ni);
-  }
-  function resetAll() {
-    const cleared: Record<string, Status> = {};
-    WORDS.forEach((w) => (cleared[w] = null));
-    setStatuses(cleared); setIndex(0); setView("trainer");
-  }
-  function jumpToWord(w: string) {
-    const i = WORDS.indexOf(w as any);
-    if (i >= 0) { setIndex(i); setView("trainer"); }
-  }
+  }, [view, index, statuses, words]);
 
   return (
     <div>
       <header>
         <div className="header-inner">
-          <div className="header-title">Charlie's Words</div>
-          <div className="header-actions">
+          <div className="header-title">Charlie&apos;s Words</div>
+          <div className="header-actions" style={{ display: "flex", gap: 8 }}>
             <button className="btn btn-small" onClick={() => setView(view === "trainer" ? "summary" : "trainer")}>
               {view === "trainer" ? "Summary" : "Back to Practice"}
             </button>
             <button className="btn btn-small" onClick={resetAll} title="Clear progress">Reset</button>
+            <button className="btn btn-small" onClick={reloadWords} title="Reload cwords.txt">Reload words</button>
           </div>
         </div>
         <div className="progress-wrap">
@@ -117,31 +184,47 @@ export default function App() {
         </div>
       </header>
 
-      {view === "trainer" ? (
-        <TrainerView
-          word={WORDS[index]}
-          index={index}
-          total={WORDS.length}
-          status={statuses[WORDS[index]]}
-          onMark={handleMark}
-          onPrev={prev}
-          onNext={next}
-          allDone={allDone}
-        />
-      ) : (
-        <SummaryView groups={groups} jumpToWord={jumpToWord} />
+      {!words && !error && (
+        <main><div className="meta">Loading cwords.txt…</div></main>
+      )}
+      {error && (
+        <main><div className="meta" style={{ color: "#b91c1c" }}>Error: {error}</div></main>
+      )}
+      {words && !error && (
+        view === "trainer" ? (
+          <TrainerView
+            word={words[index]}
+            index={index}
+            total={words.length}
+            status={statuses[words[index]]}
+            onMark={handleMark}
+            onPrev={prev}
+            onNext={next}
+            allDone={allDone}
+          />
+        ) : (
+          <SummaryView
+            groups={{
+              correct: Object.keys(statuses).filter((w) => statuses[w] === "correct"),
+              incorrect: Object.keys(statuses).filter((w) => statuses[w] === "incorrect"),
+              notAnswered: words.filter((w) => statuses[w] !== "correct" && statuses[w] !== "incorrect"),
+            }}
+            jumpToWord={jumpToWord}
+          />
+        )
       )}
 
       <footer>
         <p>
-          Tip: Use keyboard shortcuts — <b>C</b> for ✓, <b>X</b> for ✗, <b>S</b> to skip,
-          <b> Space/→</b> next.
+          Tip: Edit <b>public/cwords.txt</b> (one word per line). Shortcuts — <b>C</b> ✓,
+          <b> X</b> ✗, <b>S</b> skip, <b>Space/→</b> next.
         </p>
       </footer>
     </div>
   );
 }
 
+/** ----- Views ----- */
 function TrainerView({
   word, index, total, status, onMark, onPrev, onNext, allDone,
 }: {
@@ -172,9 +255,9 @@ function TrainerView({
       <div style={{ height: 12 }} />
 
       <div className="btn-row">
-        <button onClick={() => onMark("correct")} className="btn btn-green">✓ Correct</button>
-        <button onClick={() => onMark("incorrect")} className="btn btn-red">✗ Incorrect</button>
-        <button onClick={() => onMark("skipped")} className="btn btn-amber">Skip</button>
+        <button onClick={() => onMark("correct")} className="btn">✓ Correct</button>
+        <button onClick={() => onMark("incorrect")} className="btn">✗ Incorrect</button>
+        <button onClick={() => onMark("skipped")} className="btn">Skip</button>
       </div>
 
       <div style={{ height: 12 }} />
